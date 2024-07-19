@@ -11,13 +11,13 @@ from ctc_forced_aligner import (
 )
 from deepmultilingualpunctuation import PunctuationModel
 from nemo.collections.asr.models.msdd_models import NeuralDiarizer
-from helpers import (
+from scripts.helpers import (
     cleanup, create_config, get_realigned_ws_mapping_with_punctuation,
     get_sentences_speaker_mapping, get_speaker_aware_transcript,
-    get_words_speaker_mapping, langs_to_iso, punct_model_langs,
-    whisper_langs, write_srt
+    get_words_speaker_mapping, LANGS_TO_ISO, PUNCT_MODEL_LANGS,
+    WHISPER_LANGS, write_srt
 )
-from transcription_helpers import transcribe_batched
+from scripts.transcription_helpers import transcribe_batched
 from colorama import Fore, Style, init
 
 init(autoreset=True)
@@ -61,7 +61,7 @@ def parse_arguments():
         "--language",
         type=str,
         default=None,
-        choices=whisper_langs,
+        choices=WHISPER_LANGS,
         help=f"{Fore.YELLOW}Language spoken in the audio, specify None to perform language detection{Style.RESET_ALL}"
     )
     parser.add_argument(
@@ -111,7 +111,7 @@ def perform_forced_alignment(whisper_results, language, audio_waveform, args):
     torch.cuda.empty_cache()
 
     full_transcript = "".join(segment["text"] for segment in whisper_results)
-    tokens_starred, text_starred = preprocess_text(full_transcript, romanize=True, language=langs_to_iso[language])
+    tokens_starred, text_starred = preprocess_text(full_transcript, romanize=True, language=LANGS_TO_ISO[language])
     segments, scores, blank_id = get_alignments(emissions, tokens_starred, alignment_dictionary)
     spans = get_spans(tokens_starred, segments, alignment_tokenizer.decode(blank_id))
     return postprocess_results(text_starred, spans, stride, scores)
@@ -147,7 +147,7 @@ def read_speaker_timestamps(temp_path):
 
 def restore_punctuation(wsm, language):
     print(f"{Fore.GREEN}Restoring punctuation in the transcript...{Style.RESET_ALL}")
-    if language in punct_model_langs:
+    if language in PUNCT_MODEL_LANGS:
         punct_model = PunctuationModel(model="kredor/punctuate-all")
         words_list = list(map(lambda x: x["word"], wsm))
         labeled_words = punct_model.predict(words_list, chunk_size=230)
@@ -170,9 +170,9 @@ def restore_punctuation(wsm, language):
 
 def write_output_files(ssm):
     print(f"{Fore.BLUE}Writing output files...{Style.RESET_ALL}")
-    with open(f"output.txt", "w", encoding="utf-8-sig") as f:
+    with open(f"outputs/output.txt", "w", encoding="utf-8-sig") as f:
         get_speaker_aware_transcript(ssm, f)
-    with open(f"output.srt", "w", encoding="utf-8-sig") as srt:
+    with open(f"outputs/output.srt", "w", encoding="utf-8-sig") as srt:
         write_srt(ssm, srt)
 
 
