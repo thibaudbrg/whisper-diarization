@@ -3,6 +3,13 @@ import logging
 import os
 import re
 import sys
+from datetime import datetime
+from pathlib import Path
+import concurrent.futures
+
+from demucs.pretrained import get_model
+from demucs.audio import AudioFile, save_audio
+
 import torch
 import torchaudio
 from ctc_forced_aligner import (
@@ -11,22 +18,39 @@ from ctc_forced_aligner import (
 )
 from deepmultilingualpunctuation import PunctuationModel
 from nemo.collections.asr.models.msdd_models import NeuralDiarizer
-from scripts.helpers import (
+from helpers import (
     cleanup, create_config, get_realigned_ws_mapping_with_punctuation,
     get_sentences_speaker_mapping, get_speaker_aware_transcript,
     get_words_speaker_mapping, LANGS_TO_ISO, PUNCT_MODEL_LANGS,
     WHISPER_LANGS, write_srt
 )
-from scripts.transcription_helpers import transcribe_batched
+from transcription_helpers import transcribe_batched
 from colorama import Fore, Style, init
 
+from dotenv import load_dotenv
+
+load_dotenv()
+
+# Initialize colorama for colored output in the terminal
 init(autoreset=True)
-mtypes = {"cpu": "int8", "cuda": "float16"}
+
+# Update device options to exclude "mps"
+device_options = {
+    "cpu": "int8",
+    "cuda": "float16"
+}
 
 
 def parse_arguments():
+    """
+    Parses command line arguments provided by the user.
+
+    Returns:
+        argparse.Namespace: Parsed command line arguments.
+    """
     parser = argparse.ArgumentParser(
-        description=f"{Fore.BLUE}{Style.BRIGHT}Audio Transcription and Diarization Tool{Style.RESET_ALL}")
+        description=f"{Fore.BLUE}{Style.BRIGHT}Audio Transcription and Diarization Tool{Style.RESET_ALL}"
+    )
     parser.add_argument(
         "-a", "--audio", help=f"{Fore.YELLOW}Name of the target audio file{Style.RESET_ALL}", required=True
     )
@@ -76,29 +100,82 @@ def parse_arguments():
 
 
 def isolate_vocals(audio, stemming):
+    """
+    Isolates the vocal track from the rest of the audio using Demucs, a music source separation tool.
+
+    Args:
+        audio (str): Path to the audio file.
+        stemming (bool): Whether to perform source separation.
+
+    Returns:
+        str: Path to the isolated vocals or original audio if source separation fails.
+    """
     if stemming:
         print(f"{Fore.MAGENTA}Isolating vocals from the rest of the audio...{Style.RESET_ALL}")
-        return_code = os.system(
-            f'python3 -m demucs.separate -n htdemucs --two-stems=vocals "{audio}" -o "temp_outputs"')
-        if return_code != 0:
-            logging.warning("Source splitting failed, using original audio file. Use --no-stem argument to disable it.")
+        try:
+            # Load the pretrained model
+            model = get_model('htdemucs')
+            model.to(torch.device('cuda' if torch.cuda.is_available() else 'cpu'))
+            model.eval()
+
+            # Load the audio file
+            audio_path = Path(audio)
+            wav = AudioFile(audio_path).read(streams=0, samplerate=model.samplerate, channels=model.audio_channels)
+            wav = wav.mean(0).unsqueeze(0).to(model.device)  # Convert to mono and move to the correct device
+
+            # Perform source separation
+            with torch.no_grad():
+                sources = model(wav)
+
+            # Extract vocals
+            vocals = sources[model.sources.index('vocals')].cpu()
+
+            # Save the isolated vocals
+            temp_output_dir = Path("temp_outputs/htdemucs")
+            temp_output_dir.mkdir(parents=True, exist_ok=True)
+            vocals_path = temp_output_dir / f"{audio_path.stem}_vocals.wav"
+            save_audio(vocals, vocals_path, model.samplerate)
+            return str(vocals_path)
+        except Exception as e:
+            logging.warning(
+                f"Source splitting failed with error: {e}. Using original audio file. Use --no-stem argument to disable it.")
             return audio
-        else:
-            return os.path.join("temp_outputs", "htdemucs", os.path.splitext(os.path.basename(audio))[0], "vocals.wav")
     else:
         return audio
 
 
 def transcribe_audio(vocal_target, args):
+    """
+    Transcribes the audio file using a Whisper model.
+
+    Args:
+        vocal_target (str): Path to the audio file to transcribe.
+        args (argparse.Namespace): Parsed command line arguments.
+
+    Returns:
+        tuple: Transcription results, detected language, and audio waveform.
+    """
     print(f"{Fore.GREEN}Transcribing the audio file...{Style.RESET_ALL}")
     return transcribe_batched(
         vocal_target, args.language, args.batch_size,
-        args.model_name, mtypes[args.device],
+        args.model_name, device_options[args.device],
         args.suppress_numerals, args.device
     )
 
 
 def perform_forced_alignment(whisper_results, language, audio_waveform, args):
+    """
+    Performs forced alignment of the transcribed text with the audio.
+
+    Args:
+        whisper_results (list): Transcription results from Whisper.
+        language (str): Detected language.
+        audio_waveform (np.array): Audio waveform data.
+        args (argparse.Namespace): Parsed command line arguments.
+
+    Returns:
+        list: Forced alignment results.
+    """
     print(f"{Fore.BLUE}Performing forced alignment...{Style.RESET_ALL}")
     alignment_model, alignment_tokenizer, alignment_dictionary = load_alignment_model(
         args.device, dtype=torch.float16 if args.device == "cuda" else torch.float32
@@ -118,13 +195,27 @@ def perform_forced_alignment(whisper_results, language, audio_waveform, args):
 
 
 def save_audio_mono(audio_waveform, temp_path):
+    """
+    Converts the audio waveform to mono for NeMo compatibility and saves it to disk.
+
+    Args:
+        audio_waveform (np.array): Audio waveform data.
+        temp_path (str): Path to save the mono audio file.
+    """
     print(f"{Fore.YELLOW}Converting audio to mono for NeMo compatibility...{Style.RESET_ALL}")
     os.makedirs(temp_path, exist_ok=True)
-    audio_waveform_tensor = torch.tensor(audio_waveform).unsqueeze(0).float()  # Convert to tensor
+    audio_waveform_tensor = torch.tensor(audio_waveform).unsqueeze(0).float()
     torchaudio.save(os.path.join(temp_path, "mono_file.wav"), audio_waveform_tensor, 16000, channels_first=True)
 
 
 def perform_diarization(temp_path, args):
+    """
+    Performs speaker diarization using NeMo's MSDD model.
+
+    Args:
+        temp_path (str): Path to temporary directory for intermediate files.
+        args (argparse.Namespace): Parsed command line arguments.
+    """
     print(f"{Fore.MAGENTA}Performing diarization...{Style.RESET_ALL}")
     msdd_model = NeuralDiarizer(cfg=create_config(temp_path)).to(args.device)
     msdd_model.diarize()
@@ -133,6 +224,15 @@ def perform_diarization(temp_path, args):
 
 
 def read_speaker_timestamps(temp_path):
+    """
+    Reads speaker timestamps and labels from the diarization output.
+
+    Args:
+        temp_path (str): Path to temporary directory containing diarization output.
+
+    Returns:
+        list: List of speaker timestamps and labels.
+    """
     print(f"{Fore.CYAN}Reading timestamps and speaker labels...{Style.RESET_ALL}")
     speaker_ts = []
     with open(os.path.join(temp_path, "pred_rttms", "mono_file.rttm"), "r") as f:
@@ -146,6 +246,16 @@ def read_speaker_timestamps(temp_path):
 
 
 def restore_punctuation(wsm, language):
+    """
+    Restores punctuation in the transcript using a deep learning model.
+
+    Args:
+        wsm (list): Word-sentence mapping.
+        language (str): Detected language.
+
+    Returns:
+        list: Word-sentence mapping with restored punctuation.
+    """
     print(f"{Fore.GREEN}Restoring punctuation in the transcript...{Style.RESET_ALL}")
     if language in PUNCT_MODEL_LANGS:
         punct_model = PunctuationModel(model="kredor/punctuate-all")
@@ -164,35 +274,84 @@ def restore_punctuation(wsm, language):
                 word_dict["word"] = word
     else:
         logging.warning(
-            f"Punctuation restoration is not available for {language} language. Using the original punctuation.")
+            f"Punctuation restoration is not available for {language} language. Using the original punctuation."
+        )
     return wsm
 
 
 def write_output_files(ssm):
+    """
+    Writes the final speaker-aware transcript to text and SRT files.
+
+    Args:
+        ssm (list): Sentence-speaker mapping.
+    """
     print(f"{Fore.BLUE}Writing output files...{Style.RESET_ALL}")
-    with open(f"outputs/output.txt", "w", encoding="utf-8-sig") as f:
+
+    # Create the outputs directory if it doesn't exist
+    output_dir = "outputs"
+    os.makedirs(output_dir, exist_ok=True)
+
+    # Generate a timestamp
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+    # Create unique filenames using the timestamp
+    txt_filename = os.path.join(output_dir, f"output_{timestamp}.txt")
+    srt_filename = os.path.join(output_dir, f"output_{timestamp}.srt")
+
+    # Write the speaker-aware transcript to a text file
+    with open(txt_filename, "w", encoding="utf-8-sig") as f:
         get_speaker_aware_transcript(ssm, f)
-    with open(f"outputs/output.srt", "w", encoding="utf-8-sig") as srt:
+
+    # Write the speaker-aware transcript to an SRT file
+    with open(srt_filename, "w", encoding="utf-8-sig") as srt:
         write_srt(ssm, srt)
+
+    print(
+        f"{Fore.CYAN}{Style.BRIGHT}Output files written successfully: {txt_filename}, {srt_filename}{Style.RESET_ALL}")
 
 
 def main():
+    """
+    Main function to execute the entire audio transcription and diarization process.
+    """
     args = parse_arguments()
+
+    # Isolate vocals from the audio file if stemming is enabled
     vocal_target = isolate_vocals(args.audio, args.stemming)
-    whisper_results, language, audio_waveform = transcribe_audio(vocal_target, args)
+
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        # Submit the transcription task to the executor
+        whisper_future = executor.submit(transcribe_audio, vocal_target, args)
+
+        # Retrieve results from the whisper future
+        whisper_results, language, audio_waveform = whisper_future.result()
+
+        # Save the audio in mono format for diarization
+        temp_path = os.path.join(os.getcwd(), "temp_outputs")
+        save_audio_mono(audio_waveform, temp_path)
+
+        # Submit the diarization task to the executor
+        diarization_future = executor.submit(perform_diarization, temp_path, args)
+
+        # Wait for diarization to complete
+        diarization_future.result()
+
+    # Perform forced alignment of the transcribed text with the audio
     word_timestamps = perform_forced_alignment(whisper_results, language, audio_waveform, args)
-    temp_path = os.path.join(os.getcwd(), "temp_outputs")
-    save_audio_mono(audio_waveform, temp_path)
-    perform_diarization(temp_path, args)
+
+    # Read diarization results and process them
     speaker_ts = read_speaker_timestamps(temp_path)
     wsm = get_words_speaker_mapping(word_timestamps, speaker_ts, "start")
     wsm = restore_punctuation(wsm, language)
     wsm = get_realigned_ws_mapping_with_punctuation(wsm)
     ssm = get_sentences_speaker_mapping(wsm, speaker_ts)
+
+    # Write the output files
     write_output_files(ssm)
     cleanup(temp_path)
-    print(f"{Fore.CYAN}{Style.BRIGHT}Process completed successfully!{Style.RESET_ALL}")
 
+    print(f"{Fore.CYAN}{Style.BRIGHT}Process completed successfully!{Style.RESET_ALL}")
 
 if __name__ == "__main__":
     main()

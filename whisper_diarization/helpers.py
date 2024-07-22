@@ -2,7 +2,6 @@ import json
 import logging
 import os
 import shutil
-
 import nltk
 import wget
 from colorama import Fore, Style, init
@@ -10,13 +9,13 @@ from omegaconf import OmegaConf
 from whisperx.alignment import DEFAULT_ALIGN_MODELS_HF, DEFAULT_ALIGN_MODELS_TORCH
 from whisperx.utils import LANGUAGES, TO_LANGUAGE_CODE
 
-# Initialize colorama
+# Initialize colorama for colored output in the terminal
 init(autoreset=True)
 
-# Configure logging
+# Configure logging with timestamp, log level, and message
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-# Define constants
+# Define constants for supported languages and mapping to ISO codes
 PUNCT_MODEL_LANGS = ["en", "fr", "de", "es", "it", "nl", "pt", "bg", "pl", "cs", "sk", "sl"]
 WAV2VEC2_LANGS = list(DEFAULT_ALIGN_MODELS_TORCH.keys()) + list(DEFAULT_ALIGN_MODELS_HF.keys())
 WHISPER_LANGS = sorted(LANGUAGES.keys()) + sorted([k.title() for k in TO_LANGUAGE_CODE.keys()])
@@ -50,22 +49,35 @@ LANGS_TO_ISO = {
     "zh": "chi", "zu": "zul",
 }
 
+
 def create_config(output_dir):
+    """
+    Creates the configuration required for NeMo Diarization, including downloading the configuration file if it does not exist locally.
+
+    Args:
+        output_dir (str): Directory where intermediate files and prediction outputs will be stored.
+
+    Returns:
+        OmegaConf: Loaded configuration object for NeMo diarization.
+    """
     logging.info(f"{Fore.CYAN}Creating configuration for NeMo Diarization{Style.RESET_ALL}")
     DOMAIN_TYPE = "telephonic"  # Can be meeting, telephonic, or general based on domain type of the audio file
     CONFIG_LOCAL_DIRECTORY = "config"
     CONFIG_FILE_NAME = f"diar_infer_{DOMAIN_TYPE}.yaml"
     MODEL_CONFIG_PATH = os.path.join(CONFIG_LOCAL_DIRECTORY, CONFIG_FILE_NAME)
 
+    # Download configuration file if it does not exist locally
     if not os.path.exists(MODEL_CONFIG_PATH):
         os.makedirs(CONFIG_LOCAL_DIRECTORY, exist_ok=True)
         CONFIG_URL = f"https://raw.githubusercontent.com/NVIDIA/NeMo/main/examples/speaker_tasks/diarization/conf/inference/{CONFIG_FILE_NAME}"
         MODEL_CONFIG_PATH = wget.download(CONFIG_URL, MODEL_CONFIG_PATH)
 
+    # Load the configuration file
     config = OmegaConf.load(MODEL_CONFIG_PATH)
     data_dir = os.path.join(output_dir, "data")
     os.makedirs(data_dir, exist_ok=True)
 
+    # Create metadata for the input manifest
     meta = {
         "audio_filepath": os.path.join(output_dir, "mono_file.wav"),
         "offset": 0,
@@ -76,10 +88,12 @@ def create_config(output_dir):
         "uem_filepath": None,
     }
 
+    # Write the metadata to the input manifest file
     with open(os.path.join(data_dir, "input_manifest.json"), "w") as fp:
         json.dump(meta, fp)
         fp.write("\n")
 
+    # Set up configuration for NeMo diarization
     config.num_workers = 0
     config.diarizer.manifest_filepath = os.path.join(data_dir, "input_manifest.json")
     config.diarizer.out_dir = output_dir  # Directory to store intermediate files and prediction outputs
@@ -96,14 +110,38 @@ def create_config(output_dir):
 
     return config
 
+
 def get_word_ts_anchor(s, e, option="start"):
+    """
+    Get the anchor timestamp for a word based on the specified option.
+
+    Args:
+        s (int): Start time of the word in milliseconds.
+        e (int): End time of the word in milliseconds.
+        option (str): Option to choose the anchor point. Can be 'start', 'mid', or 'end'.
+
+    Returns:
+        int: The anchor timestamp for the word.
+    """
     if option == "end":
         return e
     elif option == "mid":
         return (s + e) / 2
     return s
 
+
 def get_words_speaker_mapping(wrd_ts, spk_ts, word_anchor_option="start"):
+    """
+    Maps words to their respective speakers based on timestamps.
+
+    Args:
+        wrd_ts (list): List of word timestamps.
+        spk_ts (list): List of speaker timestamps.
+        word_anchor_option (str): Option to choose the anchor point for words. Can be 'start', 'mid', or 'end'.
+
+    Returns:
+        list: List of dictionaries with word, start_time, end_time, and speaker.
+    """
     s, e, sp = spk_ts[0]
     wrd_pos, turn_idx = 0, 0
     wrd_spk_mapping = []
@@ -112,6 +150,7 @@ def get_words_speaker_mapping(wrd_ts, spk_ts, word_anchor_option="start"):
         ws, we, wrd = int(wrd_dict["start"] * 1000), int(wrd_dict["end"] * 1000), wrd_dict["text"]
         wrd_pos = get_word_ts_anchor(ws, we, word_anchor_option)
 
+        # Adjust the speaker timestamp index if the word timestamp exceeds the current speaker timestamp
         while wrd_pos > float(e):
             turn_idx += 1
             turn_idx = min(turn_idx, len(spk_ts) - 1)
@@ -123,16 +162,42 @@ def get_words_speaker_mapping(wrd_ts, spk_ts, word_anchor_option="start"):
 
     return wrd_spk_mapping
 
+
 def get_first_word_idx_of_sentence(word_idx, word_list, speaker_list, max_words):
+    """
+    Get the index of the first word in a sentence based on the maximum number of words and speaker continuity.
+
+    Args:
+        word_idx (int): Index of the current word.
+        word_list (list): List of words.
+        speaker_list (list): List of speakers corresponding to the words.
+        max_words (int): Maximum number of words in a sentence.
+
+    Returns:
+        int: Index of the first word in the sentence.
+    """
     is_word_sentence_end = lambda x: x >= 0 and word_list[x][-1] in ".?!"
     left_idx = word_idx
 
-    while left_idx > 0 and word_idx - left_idx < max_words and speaker_list[left_idx - 1] == speaker_list[left_idx] and not is_word_sentence_end(left_idx - 1):
+    while left_idx > 0 and word_idx - left_idx < max_words and speaker_list[left_idx - 1] == speaker_list[
+        left_idx] and not is_word_sentence_end(left_idx - 1):
         left_idx -= 1
 
     return left_idx if left_idx == 0 or is_word_sentence_end(left_idx - 1) else -1
 
+
 def get_last_word_idx_of_sentence(word_idx, word_list, max_words):
+    """
+    Get the index of the last word in a sentence based on the maximum number of words.
+
+    Args:
+        word_idx (int): Index of the current word.
+        word_list (list): List of words.
+        max_words (int): Maximum number of words in a sentence.
+
+    Returns:
+        int: Index of the last word in the sentence.
+    """
     is_word_sentence_end = lambda x: x >= 0 and word_list[x][-1] in ".?!"
     right_idx = word_idx
 
@@ -141,7 +206,18 @@ def get_last_word_idx_of_sentence(word_idx, word_list, max_words):
 
     return right_idx if right_idx == len(word_list) - 1 or is_word_sentence_end(right_idx) else -1
 
+
 def get_realigned_ws_mapping_with_punctuation(word_speaker_mapping, max_words_in_sentence=50):
+    """
+    Realign the word-speaker mapping with punctuation, ensuring sentence continuity and speaker consistency.
+
+    Args:
+        word_speaker_mapping (list): List of dictionaries with word, start_time, end_time, and speaker.
+        max_words_in_sentence (int): Maximum number of words in a sentence.
+
+    Returns:
+        list: Realigned list of dictionaries with word, start_time, end_time, and speaker.
+    """
     is_word_sentence_end = lambda x: x >= 0 and word_speaker_mapping[x]["word"][-1] in ".?!"
     wsp_len = len(word_speaker_mapping)
     words_list, speaker_list = [], []
@@ -156,7 +232,8 @@ def get_realigned_ws_mapping_with_punctuation(word_speaker_mapping, max_words_in
         line_dict = word_speaker_mapping[k]
         if k < wsp_len - 1 and speaker_list[k] != speaker_list[k + 1] and not is_word_sentence_end(k):
             left_idx = get_first_word_idx_of_sentence(k, words_list, speaker_list, max_words_in_sentence)
-            right_idx = get_last_word_idx_of_sentence(k, words_list, max_words_in_sentence - k + left_idx - 1) if left_idx > -1 else -1
+            right_idx = get_last_word_idx_of_sentence(k, words_list,
+                                                      max_words_in_sentence - k + left_idx - 1) if left_idx > -1 else -1
 
             if min(left_idx, right_idx) == -1:
                 k += 1
@@ -183,7 +260,18 @@ def get_realigned_ws_mapping_with_punctuation(word_speaker_mapping, max_words_in
 
     return realigned_list
 
+
 def get_sentences_speaker_mapping(word_speaker_mapping, spk_ts):
+    """
+    Get the mapping of sentences to their respective speakers.
+
+    Args:
+        word_speaker_mapping (list): List of dictionaries with word, start_time, end_time, and speaker.
+        spk_ts (list): List of speaker timestamps.
+
+    Returns:
+        list: List of dictionaries with speaker, start_time, end_time, and text.
+    """
     sentence_checker = nltk.tokenize.PunktSentenceTokenizer().text_contains_sentbreak
     s, e, spk = spk_ts[0]
     prev_spk = spk
@@ -206,7 +294,15 @@ def get_sentences_speaker_mapping(word_speaker_mapping, spk_ts):
     snts.append(snt)
     return snts
 
+
 def get_speaker_aware_transcript(sentences_speaker_mapping, f):
+    """
+    Writes the speaker-aware transcript to a file.
+
+    Args:
+        sentences_speaker_mapping (list): List of dictionaries with speaker, start_time, end_time, and text.
+        f (file object): File object to write the transcript to.
+    """
     previous_speaker = sentences_speaker_mapping[0]["speaker"]
     f.write(f"{previous_speaker}: ")
 
@@ -220,7 +316,19 @@ def get_speaker_aware_transcript(sentences_speaker_mapping, f):
 
         f.write(sentence + " ")
 
+
 def format_timestamp(milliseconds: float, always_include_hours: bool = False, decimal_marker: str = "."):
+    """
+    Formats a timestamp from milliseconds to a string in the format HH:MM:SS,mmm.
+
+    Args:
+        milliseconds (float): Time in milliseconds.
+        always_include_hours (bool): Whether to always include the hours part in the timestamp.
+        decimal_marker (str): Character to use as the decimal marker.
+
+    Returns:
+        str: Formatted timestamp string.
+    """
     assert milliseconds >= 0, "non-negative timestamp expected"
     hours = milliseconds // 3_600_000
     milliseconds -= hours * 3_600_000
@@ -231,7 +339,15 @@ def format_timestamp(milliseconds: float, always_include_hours: bool = False, de
     hours_marker = f"{hours:02d}:" if always_include_hours or hours > 0 else ""
     return f"{hours_marker}{minutes:02d}:{seconds:02d}{decimal_marker}{milliseconds:03d}"
 
+
 def write_srt(transcript, file):
+    """
+    Writes a transcript to a file in SRT (SubRip Subtitle) format.
+
+    Args:
+        transcript (list): List of dictionaries with start_time, end_time, speaker, and text.
+        file (file object): File object to write the SRT content to.
+    """
     for i, segment in enumerate(transcript, start=1):
         print(
             f"{i}\n"
@@ -242,10 +358,32 @@ def write_srt(transcript, file):
             flush=True,
         )
 
+
 def find_numeral_symbol_tokens(tokenizer):
+    """
+    Finds tokens in the tokenizer vocabulary that contain numeral or symbol characters.
+
+    Args:
+        tokenizer (Tokenizer): Tokenizer object.
+
+    Returns:
+        list: List of token IDs that contain numeral or symbol characters.
+    """
     return [token_id for token, token_id in tokenizer.get_vocab().items() if any(c in "0123456789%$£" for c in token)]
 
+
 def _get_next_start_timestamp(word_timestamps, current_word_index, final_timestamp):
+    """
+    Gets the start timestamp of the next word.
+
+    Args:
+        word_timestamps (list): List of word timestamps.
+        current_word_index (int): Index of the current word.
+        final_timestamp (float): Final timestamp of the audio.
+
+    Returns:
+        float: Start timestamp of the next word.
+    """
     if current_word_index == len(word_timestamps) - 1:
         return word_timestamps[current_word_index]["start"]
 
@@ -255,12 +393,24 @@ def _get_next_start_timestamp(word_timestamps, current_word_index, final_timesta
             word_timestamps[current_word_index]["word"] += " " + word_timestamps[next_word_index]["word"]
             word_timestamps[next_word_index]["word"] = None
             next_word_index += 1
-            if next_word_index == len(word_ttimestamps):
+            if next_word_index == len(word_timestamps):
                 return final_timestamp
         else:
             return word_timestamps[next_word_index]["start"]
 
+
 def filter_missing_timestamps(word_timestamps, initial_timestamp=0, final_timestamp=None):
+    """
+    Filters out missing timestamps and fills them in based on adjacent timestamps.
+
+    Args:
+        word_timestamps (list): List of word timestamps.
+        initial_timestamp (float): Initial timestamp to use if the first word has no timestamp.
+        final_timestamp (float): Final timestamp to use if the last word has no timestamp.
+
+    Returns:
+        list: List of word timestamps with missing timestamps filled in.
+    """
     if word_timestamps[0].get("start") is None:
         word_timestamps[0]["start"] = initial_timestamp if initial_timestamp is not None else 0
         word_timestamps[0]["end"] = _get_next_start_timestamp(word_timestamps, 0, final_timestamp)
@@ -276,7 +426,17 @@ def filter_missing_timestamps(word_timestamps, initial_timestamp=0, final_timest
 
     return result
 
+
 def cleanup(path: str):
+    """
+    Cleans up the specified path by removing the file or directory.
+
+    Args:
+        path (str): Path to the file or directory to be removed.
+
+    Raises:
+        ValueError: If the specified path is not a file or directory.
+    """
     if os.path.isfile(path) or os.path.islink(path):
         os.remove(path)
     elif os.path.isdir(path):
@@ -284,7 +444,21 @@ def cleanup(path: str):
     else:
         raise ValueError(f"Path {path} is not a file or dir.")
 
+
 def process_language_arg(language: str, model_name: str):
+    """
+    Processes the language argument to ensure it is valid and converts language names to language codes.
+
+    Args:
+        language (str): Language specified by the user.
+        model_name (str): Name of the model being used.
+
+    Returns:
+        str: Processed language code.
+
+    Raises:
+        ValueError: If the language is not supported.
+    """
     if language is not None:
         language = language.lower()
 

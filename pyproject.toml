@@ -1,0 +1,29 @@
+[tool.poetry]
+name = "whisper-diarization"
+version = "0.1.0"
+description = ""
+authors = ["Thibaud Bourgeois"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.10"
+wget = "*"
+huggingface-hub = "=0.20.3"
+colorama = "*"
+nemo-toolkit = { version = "=1.20.0", extras = ["asr"] }
+whisperX = { git = "https://github.com/m-bain/whisperX.git", rev = "78dcfaab51005aa703ee21375f81ed31bc248560" }
+demucs = { git = "https://github.com/adefossez/demucs.git", rev = "main" }
+deepmultilingualpunctuation = { git = "https://github.com/oliverguhr/deepmultilingualpunctuation.git", rev = "main" }
+ctc-forced-aligner = { git = "https://github.com/MahmoudAshraf97/ctc-forced-aligner.git", rev = "main" }
+Cython = "^3.0.10"
+pyyaml = "^6.0"
+numpy = "<2.0"
+python-dotenv = "^0.20.0"
+setuptools = "*" # for potential PEP517 issues
+wheel = "*"      # for potential PEP517 issues
+
+[tool.poetry.dev-dependencies]
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
