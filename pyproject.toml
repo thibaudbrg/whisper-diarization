@@ -4,12 +4,7 @@ version = "0.1.0"
 description = ""
 authors = ["Thibaud Bourgeois"]
 readme = "README.md"
-packages = [
-    { include = "whisper_diarization/ctc_forced_aligner/punctuations.lst" },
-    { include = "whisper_diarization/ctc_forced_aligner/uroman/bin/*" },
-    { include = "whisper_diarization/ctc_forced_aligner/uroman/data/*" },
-    { include = "whisper_diarization/ctc_forced_aligner/uroman/lib/*" }
-]
+
 
 [tool.poetry.dependencies]
 python = "^3.10"
@@ -20,12 +15,9 @@ nemo-toolkit = { version = "=1.20.0", extras = ["asr"] }
 whisperX = { git = "https://github.com/m-bain/whisperX.git", rev = "78dcfaab51005aa703ee21375f81ed31bc248560" }
 demucs = { git = "https://github.com/adefossez/demucs.git", rev = "main" }
 deepmultilingualpunctuation = { git = "https://github.com/oliverguhr/deepmultilingualpunctuation.git", rev = "main" }
-Cython = "^3.0.10"
 pyyaml = "^6.0"
 numpy = "<2.0"
 python-dotenv = "*"
-setuptools = "*" # for potential PEP517 issues
-wheel = "*"      # for potential PEP517 issues
 pydub = "*"
 pybind11 = "*"
 nltk = "*"
@@ -33,12 +25,22 @@ torch = "*"
 torchaudio = "*"
 transformers = ">=4.34"
 Unidecode = "*"
+youtokentome = {git = "https://github.com/gburlet/YouTokenToMe.git", rev = "dependencies"}
 
 [tool.poetry.dev-dependencies]
 
 [build-system]
-requires = ["poetry-core"]
+requires = ["poetry-core",  "setuptools", "wheel", "Cython>=3.0.10"]
 build-backend = "poetry.core.masonry.api"
 
 [tool.poetry.scripts]
 ctc-forced-aligner = "ctc_forced_aligner.align:cli"
+
+
+[tool.setuptools.package-data]
+"*" = [
+    "whisper_diarization/ctc_forced_aligner/ctc_forced_aligner/punctuations.lst",
+    "whisper_diarization/ctc_forced_aligner/uroman/bin/**/*.*",
+    "whisper_diarization/ctc_forced_aligner/uroman/data/**/*.*",
+    "whisper_diarization/ctc_forced_aligner/uroman/lib/**/*.*"
+]
