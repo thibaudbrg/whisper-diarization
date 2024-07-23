@@ -9,7 +9,7 @@ import numpy as np
 from .norm_config import norm_config
 
 # Define the path to the uroman binary
-UROMAN_PATH = os.path.join(os.path.dirname(__file__), "uroman", "bin")
+UROMAN_PATH = os.path.join(os.path.dirname(__file__), "..", "uroman", "bin")
 assert os.path.exists(UROMAN_PATH), f"uroman not found at {UROMAN_PATH}"
 
 def text_normalize(

@@ -1,3 +1,4 @@
 [submodule "whisper_diarization/ctc_forced_aligner/uroman"]
 	path = whisper_diarization/ctc_forced_aligner/uroman
 	url = https://github.com/isi-nlp/uroman.git
+    branch = 2aa7fb83d536c5c33801edb94a140d51c6a9f62b

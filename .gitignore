@@ -76,3 +76,5 @@ coverage.xml
 
 # Poetry lock file
 poetry.lock
+
+temp_outputs/
