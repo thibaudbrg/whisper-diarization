@@ -1,0 +1,2 @@
+{"audio_filepath": "/Users/tibo/Documents/UBP_PROJECTS/SpeechToText/whisper-diarization/temp_outputs/mono_file.wav", "duration": 50, "label": "infer", "text": "_", "offset": 0}
+{"audio_filepath": "/Users/tibo/Documents/UBP_PROJECTS/SpeechToText/whisper-diarization/temp_outputs/mono_file.wav", "duration": 40.21725, "label": "infer", "text": "_", "offset": 49.85}

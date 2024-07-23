@@ -41,7 +41,7 @@ cp .env.example .env
 Run the main script `concurrent_diarize.py` with the required arguments:
 
 ```bash
-python whisper_diarization/concurrent_diarize.py -a <audio_file.wav> --whisper-model <model_name>
+python whisper_diarization/concurrent_diarize.py -a audios/<audio_file.wav> --whisper-model <model_name>
 ```
 
 ### Command Line Arguments 
