@@ -1,4 +1,4 @@
-# Whisper + Diarization using Nemo 
+# Whisper + Diarization using NeMo 
 
 ## Project Overview 
 
@@ -9,30 +9,36 @@ This project combines advanced speech recognition and speaker diarization techni
 ### Prerequisites 
 
 - Python 3.10
-
 - CUDA-enabled GPU (optional but recommended for faster processing)
 
 ### Setup 
  
 1. Clone the repository:
 
-
 ```bash
 git clone https://github.com/thibaudbrg/whisper-diarization.git
 cd whisper-diarization
 ```
- 
-2. Install dependencies using Poetry:
+
+1. Install dependencies using Poetry:
 
 
 ```bash
 poetry install
 ```
  
-3. Configure your environment variables by creating a `.env` file (if necessary).
+1. Configure your environment variables by creating a `.env` file (if necessary):
+
 
 ```bash
 cp .env.example .env
+```
+ 
+1. Build the `ctc_forced_aligner` C++ library:
+
+
+```bash
+python whisper_diarization/ctc_forced_aligner/setup.py build_ext --inplace
 ```
 
 ## Usage 
@@ -80,6 +86,8 @@ This script orchestrates the entire process of audio transcription and speaker d
  
 8. **Writing Output Files** : Generates and saves the final speaker-aware transcript and SRT files.
 
+The code runs Whisper and the NeMo MSDD model in concurrence for better efficiency.
+
 ## Configurations 
 Configuration files for different diarization scenarios (general, meeting, telephonic) are stored in the `config` directory. You can customize these YAML files based on your specific needs.
 ## Output 
@@ -93,5 +101,4 @@ Processed outputs, including transcribed text files and SRT subtitle files, are 
 - For CUDA-related issues, make sure your GPU drivers and CUDA toolkit are correctly installed.
 
 ## License 
-
 This project is under `MIT License`. For more information, see the `LICENSE` file.

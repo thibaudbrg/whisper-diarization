@@ -112,7 +112,7 @@ def main():
     ssm = get_sentences_speaker_mapping(wsm, speaker_ts)
 
     # Write the output files
-    write_output_files(ssm)
+    write_output_files(ssm, args.model_name)
     cleanup(temp_path)
 
     print(f"{Fore.CYAN}{Style.BRIGHT}Process completed successfully!{Style.RESET_ALL}")

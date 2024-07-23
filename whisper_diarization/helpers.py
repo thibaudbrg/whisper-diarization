@@ -411,12 +411,13 @@ def process_language_arg(language: str, model_name: str):
         language = "en"
     return language
 
-def write_output_files(ssm):
+def write_output_files(ssm, whisper_model):
     """
-    Writes the final speaker-aware transcript to text and SRT files.
+    Writes the final speaker-aware transcript to text and SRT files, including the Whisper model used.
 
     Args:
         ssm (list): Sentence-speaker mapping.
+        whisper_model (str): The name of the Whisper model used.
     """
     print(f"{Fore.BLUE}Writing output files...{Style.RESET_ALL}")
 
@@ -427,9 +428,9 @@ def write_output_files(ssm):
     # Generate a timestamp
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-    # Create unique filenames using the timestamp
-    txt_filename = os.path.join(output_dir, f"output_{timestamp}.txt")
-    srt_filename = os.path.join(output_dir, f"output_{timestamp}.srt")
+    # Create unique filenames using the timestamp and Whisper model name
+    txt_filename = os.path.join(output_dir, f"output_{timestamp}_{whisper_model}.txt")
+    srt_filename = os.path.join(output_dir, f"output_{timestamp}_{whisper_model}.srt")
 
     # Write the speaker-aware transcript to a text file
     with open(txt_filename, "w", encoding="utf-8-sig") as f:
