@@ -37,8 +37,7 @@ logs/
 
 # Ignore output files but keep the directory
 outputs/*
-audios/*
-!audios/.gitkeep
+
 !outputs/.gitkeep
 
 # IDEs and editors
