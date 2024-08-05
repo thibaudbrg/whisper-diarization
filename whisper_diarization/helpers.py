@@ -441,3 +441,6 @@ def write_output_files(ssm, whisper_model):
         write_srt(ssm, srt)
 
     print(f"{Fore.CYAN}{Style.BRIGHT}Output files written successfully: {txt_filename}, {srt_filename}{Style.RESET_ALL}")
+
+    # Return the paths to the output files
+    return txt_filename, srt_filename

@@ -9,6 +9,7 @@ This project combines advanced speech recognition and speaker diarization techni
 ### Prerequisites 
 
 - Python 3.10
+- `ffmpeg` installed on your machine
 - CUDA-enabled GPU (optional but recommended for faster processing)
 
 ### Setup 
@@ -20,25 +21,33 @@ git clone https://github.com/thibaudbrg/whisper-diarization.git
 cd whisper-diarization
 ```
 
-1. Install dependencies using Poetry:
+2. Bring the Uroman submodule:
+
+```bash
+git config --global add safe.directory /path/to/whisper-diarization
+git submodule update --init --recursive
+```
+
+3. Install dependencies using Poetry:
 
 
 ```bash
 poetry install
 ```
  
-1. Configure your environment variables by creating a `.env` file (if necessary):
+4. Configure your environment variables by creating a `.env` file (if necessary):
 
 
 ```bash
 cp .env.example .env
 ```
  
-1. Build the `ctc_forced_aligner` C++ library:
+5. Build the `ctc_forced_aligner` C++ library:
 
 
 ```bash
-python whisper_diarization/ctc_forced_aligner/setup.py build_ext --inplace
+cd whisper_diarization/ctc_forced_aligner/
+python setup.py build_ext --inplace
 ```
 
 ## Usage 

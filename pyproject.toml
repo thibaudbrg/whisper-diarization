@@ -26,6 +26,7 @@ torchaudio = "*"
 transformers = ">=4.34"
 Unidecode = "*"
 youtokentome = {git = "https://github.com/gburlet/YouTokenToMe.git", rev = "dependencies"}
+streamlit = "*"
 
 [tool.poetry.dev-dependencies]
 
